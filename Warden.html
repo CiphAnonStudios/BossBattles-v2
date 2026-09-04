@@ -1,0 +1,1505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boss Rush</title>
+
+<style>
+*{
+    box-sizing:border-box;
+    user-select:none;
+    -webkit-user-select:none;
+}
+
+html,body{
+    margin:0;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+    background:#080914;
+    font-family:Arial,sans-serif;
+}
+
+canvas{
+    display:block;
+    width:100%;
+    height:100%;
+    image-rendering:pixelated;
+}
+
+#ui{
+    position:fixed;
+    inset:0;
+    pointer-events:none;
+}
+
+#bossBox{
+    position:absolute;
+    top:18px;
+    left:50%;
+    transform:translateX(-50%);
+    width:min(600px,75vw);
+    text-align:center;
+}
+
+#bossName{
+    color:white;
+    font-size:20px;
+    font-weight:bold;
+    text-shadow:0 2px 5px #000;
+    margin-bottom:6px;
+}
+
+#bossBar{
+    height:20px;
+    background:#260d12;
+    border:3px solid #fff;
+    border-radius:5px;
+    overflow:hidden;
+}
+
+#bossHealth{
+    width:100%;
+    height:100%;
+    background:#e53935;
+    transition:width .08s linear;
+}
+
+#playerBox{
+    position:absolute;
+    top:18px;
+    left:18px;
+    width:180px;
+}
+
+#playerLabel{
+    color:white;
+    font-weight:bold;
+    margin-bottom:5px;
+    text-shadow:0 2px 4px #000;
+}
+
+#playerBar{
+    height:16px;
+    background:#17231c;
+    border:2px solid white;
+}
+
+#playerHealth{
+    width:100%;
+    height:100%;
+    background:#45d65c;
+}
+
+#phase{
+    position:absolute;
+    top:72px;
+    left:50%;
+    transform:translateX(-50%);
+    color:#ffcc66;
+    font-size:15px;
+    font-weight:bold;
+    text-shadow:0 2px 5px black;
+}
+
+#message{
+    position:absolute;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    color:white;
+    background:rgba(0,0,0,.65);
+    pointer-events:auto;
+}
+
+#message h1{
+    font-size:48px;
+    margin:0 0 10px;
+}
+
+#message p{
+    font-size:18px;
+    color:#ddd;
+    text-align:center;
+}
+
+#restart{
+    margin-top:20px;
+    padding:12px 28px;
+    border:0;
+    border-radius:7px;
+    background:#fff;
+    color:#111;
+    font-weight:bold;
+    font-size:17px;
+    cursor:pointer;
+}
+
+.hidden{
+    display:none!important;
+}
+
+/* MOBILE CONTROLS */
+
+#controls{
+    position:fixed;
+    left:0;
+    right:0;
+    bottom:15px;
+    display:flex;
+    justify-content:space-between;
+    padding:0 18px;
+    pointer-events:none;
+}
+
+.controlGroup{
+    display:flex;
+    gap:10px;
+    pointer-events:auto;
+}
+
+.btn{
+    width:64px;
+    height:64px;
+    border-radius:50%;
+    border:2px solid rgba(255,255,255,.7);
+    background:rgba(255,255,255,.16);
+    color:white;
+    font-size:25px;
+    font-weight:bold;
+    touch-action:none;
+}
+
+.btn:active{
+    background:rgba(255,255,255,.35);
+}
+
+.attack{
+    background:rgba(220,50,50,.3);
+}
+
+.dash{
+    background:rgba(50,120,255,.3);
+}
+
+@media(min-width:800px){
+    #controls{
+        opacity:.35;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="ui">
+
+    <div id="playerBox">
+        <div id="playerLabel">PLAYER</div>
+        <div id="playerBar">
+            <div id="playerHealth"></div>
+        </div>
+    </div>
+
+    <div id="bossBox">
+        <div id="bossName">THE WARDEN</div>
+        <div id="bossBar">
+            <div id="bossHealth"></div>
+        </div>
+    </div>
+
+    <div id="phase">PHASE 1</div>
+
+    <div id="message" class="hidden">
+        <h1 id="messageTitle">YOU WIN</h1>
+        <p id="messageText">The Warden has been defeated.</p>
+        <button id="restart">PLAY AGAIN</button>
+    </div>
+
+</div>
+
+<div id="controls">
+
+    <div class="controlGroup">
+        <button class="btn" id="left">◀</button>
+        <button class="btn" id="right">▶</button>
+        <button class="btn" id="jump">▲</button>
+    </div>
+
+    <div class="controlGroup">
+        <button class="btn dash" id="dash">◆</button>
+        <button class="btn attack" id="attack">⚔</button>
+    </div>
+
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let W,H;
+function resize(){
+    W=canvas.width=innerWidth;
+    H=canvas.height=innerHeight;
+}
+addEventListener("resize",resize);
+resize();
+
+const keys={};
+addEventListener("keydown",e=>{
+    keys[e.key.toLowerCase()]=true;
+
+    if([" ","arrowup","arrowleft","arrowright"].includes(e.key.toLowerCase()))
+        e.preventDefault();
+
+    if(e.key==="Enter" && gameOver) restart();
+});
+
+addEventListener("keyup",e=>{
+    keys[e.key.toLowerCase()]=false;
+});
+
+/* MOBILE BUTTONS */
+
+function bindButton(id,key){
+    const el=document.getElementById(id);
+
+    el.addEventListener("pointerdown",e=>{
+        e.preventDefault();
+        keys[key]=true;
+    });
+
+    el.addEventListener("pointerup",e=>{
+        e.preventDefault();
+        keys[key]=false;
+    });
+
+    el.addEventListener("pointercancel",()=>{
+        keys[key]=false;
+    });
+
+    el.addEventListener("pointerleave",()=>{
+        keys[key]=false;
+    });
+}
+
+bindButton("left","arrowleft");
+bindButton("right","arrowright");
+bindButton("jump","arrowup");
+bindButton("attack","z");
+bindButton("dash","x");
+
+document.getElementById("restart").onclick=restart;
+
+
+/* =========================
+   WORLD
+========================= */
+
+const gravity=.75;
+
+const platforms=[
+    {x:0,y:0,w:0,h:0},
+
+    {x:.05,y:.78,w:.22,h:.04},
+    {x:.73,y:.78,w:.22,h:.04},
+
+    {x:.27,y:.63,w:.20,h:.035},
+    {x:.53,y:.63,w:.20,h:.035},
+
+    {x:.40,y:.47,w:.20,h:.035}
+];
+
+function getPlatforms(){
+    return platforms.slice(1).map(p=>({
+        x:p.x*W,
+        y:p.y*H,
+        w:p.w*W,
+        h:p.h*H
+    }));
+}
+
+
+/* =========================
+   PLAYER
+========================= */
+
+const player={
+    x:200,
+    y:300,
+    w:30,
+    h:46,
+
+    vx:0,
+    vy:0,
+
+    speed:4.5,
+    jump:-13,
+
+    hp:100,
+
+    grounded:false,
+    facing:1,
+
+    attackTimer:0,
+    attackCooldown:0,
+
+    dashTimer:0,
+    dashCooldown:0,
+    invincible:0,
+
+    hurt:0
+};
+
+
+/* =========================
+   BOSS
+========================= */
+
+const boss={
+    x:0,
+    y:0,
+    w:82,
+    h:105,
+
+    vx:0,
+    vy:0,
+
+    hp:500,
+    maxHp:500,
+
+    attackTimer:100,
+    attackType:null,
+
+    hurt:0,
+    facing:-1,
+
+    grounded:false,
+
+    phase:1,
+
+    jumpTimer:180
+};
+
+let projectiles=[];
+let shockwaves=[];
+let fallingRocks=[];
+let particles=[];
+
+let shake=0;
+let gameOver=false;
+
+
+/* =========================
+   PARTICLES
+========================= */
+
+function burst(x,y,color,count=12){
+
+    for(let i=0;i<count;i++){
+
+        const a=Math.random()*Math.PI*2;
+        const s=Math.random()*5+1;
+
+        particles.push({
+            x,y,
+            vx:Math.cos(a)*s,
+            vy:Math.sin(a)*s,
+            life:30+Math.random()*20,
+            size:2+Math.random()*4,
+            color
+        });
+    }
+}
+
+
+/* =========================
+   DAMAGE
+========================= */
+
+function damagePlayer(amount){
+
+    if(player.invincible>0 || gameOver) return;
+
+    player.hp-=amount;
+    player.hurt=10;
+    player.invincible=45;
+
+    shake=8;
+
+    burst(
+        player.x+player.w/2,
+        player.y+player.h/2,
+        "#ff5555",
+        15
+    );
+
+    if(player.hp<=0){
+        player.hp=0;
+        endGame(false);
+    }
+}
+
+function damageBoss(amount){
+
+    if(gameOver) return;
+
+    boss.hp-=amount;
+    boss.hurt=8;
+
+    shake=5;
+
+    burst(
+        boss.x+boss.w/2,
+        boss.y+boss.h/2,
+        "#ffd166",
+        18
+    );
+
+    if(boss.hp<=0){
+        boss.hp=0;
+        endGame(true);
+    }
+}
+
+
+/* =========================
+   PLAYER UPDATE
+========================= */
+
+function updatePlayer(){
+
+    if(gameOver) return;
+
+    if(player.attackCooldown>0)
+        player.attackCooldown--;
+
+    if(player.attackTimer>0)
+        player.attackTimer--;
+
+    if(player.dashCooldown>0)
+        player.dashCooldown--;
+
+    if(player.dashTimer>0)
+        player.dashTimer--;
+
+    if(player.invincible>0)
+        player.invincible--;
+
+    if(player.hurt>0)
+        player.hurt--;
+
+    let moving=false;
+
+    if(keys["arrowleft"] || keys["a"]){
+        player.vx=-player.speed;
+        player.facing=-1;
+        moving=true;
+    }
+
+    if(keys["arrowright"] || keys["d"]){
+        player.vx=player.speed;
+        player.facing=1;
+        moving=true;
+    }
+
+    if(!moving){
+        player.vx*=.75;
+    }
+
+    /* DASH */
+
+    if((keys["x"] || keys["shift"]) &&
+       player.dashCooldown<=0 &&
+       player.dashTimer<=0){
+
+        player.dashTimer=10;
+        player.dashCooldown=70;
+        player.invincible=18;
+
+        player.vx=player.facing*14;
+
+        burst(
+            player.x+player.w/2,
+            player.y+player.h,
+            "#74c0fc",
+            12
+        );
+    }
+
+    /* JUMP */
+
+    if((keys["arrowup"] || keys["w"] || keys[" "]) &&
+       player.grounded){
+
+        player.vy=player.jump;
+        player.grounded=false;
+
+        burst(
+            player.x+player.w/2,
+            player.y+player.h,
+            "#ffffff",
+            6
+        );
+    }
+
+    player.vy+=gravity;
+
+    player.x+=player.vx;
+    player.y+=player.vy;
+
+    player.grounded=false;
+
+    const ps=getPlatforms();
+
+    for(const p of ps){
+
+        if(
+            player.x+player.w>p.x &&
+            player.x<p.x+p.w &&
+            player.y+player.h>=p.y &&
+            player.y+player.h<=p.y+20 &&
+            player.vy>=0
+        ){
+
+            player.y=p.y-player.h;
+            player.vy=0;
+            player.grounded=true;
+        }
+    }
+
+    /* FLOOR */
+
+    const floorY=H*.88;
+
+    if(player.y+player.h>=floorY){
+
+        player.y=floorY-player.h;
+        player.vy=0;
+        player.grounded=true;
+    }
+
+    /* WALLS */
+
+    if(player.x<0){
+        player.x=0;
+        player.vx=0;
+    }
+
+    if(player.x+player.w>W){
+        player.x=W-player.w;
+        player.vx=0;
+    }
+
+    /* ATTACK */
+
+    if(
+        (keys["z"] || keys["j"]) &&
+        player.attackCooldown<=0
+    ){
+
+        player.attackTimer=13;
+        player.attackCooldown=24;
+
+        const range=62;
+
+        const ax=player.facing===1
+            ? player.x+player.w
+            : player.x-range;
+
+        if(
+            ax<boss.x+boss.w &&
+            ax+range>boss.x &&
+            player.y<boss.y+boss.h &&
+            player.y+player.h>boss.y
+        ){
+            damageBoss(15);
+        }
+
+        burst(
+            player.x+player.w/2+player.facing*35,
+            player.y+20,
+            "#ffffff",
+            5
+        );
+    }
+}
+
+
+/* =========================
+   BOSS AI
+========================= */
+
+function updateBoss(){
+
+    if(gameOver) return;
+
+    if(boss.hurt>0)
+        boss.hurt--;
+
+    /* PHASE */
+
+    if(boss.hp<=250 && boss.hp>100)
+        boss.phase=2;
+
+    if(boss.hp<=100)
+        boss.phase=3;
+
+    document.getElementById("phase").textContent=
+        "PHASE "+boss.phase;
+
+    /* MOVE TOWARD PLAYER */
+
+    const distance=player.x-boss.x;
+
+    if(Math.abs(distance)>130){
+
+        boss.vx += Math.sign(distance)*.15;
+
+        const maxSpeed=
+            boss.phase===1 ? 2 :
+            boss.phase===2 ? 2.8 : 3.5;
+
+        boss.vx=Math.max(
+            -maxSpeed,
+            Math.min(maxSpeed,boss.vx)
+        );
+
+        boss.facing=Math.sign(distance);
+    }else{
+
+        boss.vx*=.85;
+    }
+
+    /* BOSS GRAVITY */
+
+    boss.vy+=gravity*.8;
+
+    boss.x+=boss.vx;
+    boss.y+=boss.vy;
+
+    boss.grounded=false;
+
+    const ps=getPlatforms();
+
+    for(const p of ps){
+
+        if(
+            boss.x+boss.w>p.x &&
+            boss.x<p.x+p.w &&
+            boss.y+boss.h>=p.y &&
+            boss.y+boss.h<=p.y+20 &&
+            boss.vy>=0
+        ){
+
+            boss.y=p.y-boss.h;
+            boss.vy=0;
+            boss.grounded=true;
+        }
+    }
+
+    const floorY=H*.88;
+
+    if(boss.y+boss.h>=floorY){
+
+        boss.y=floorY-boss.h;
+        boss.vy=0;
+        boss.grounded=true;
+    }
+
+    if(boss.x<0) boss.x=0;
+    if(boss.x+boss.w>W) boss.x=W-boss.w;
+
+    /* ATTACK TIMER */
+
+    boss.attackTimer--;
+
+    if(boss.attackTimer<=0){
+
+        const r=Math.random();
+
+        if(boss.phase===1){
+
+            if(r<.5)
+                fireballAttack();
+            else
+                shockwaveAttack();
+
+            boss.attackTimer=100;
+
+        }else if(boss.phase===2){
+
+            if(r<.33)
+                fireballAttack();
+            else if(r<.66)
+                shockwaveAttack();
+            else
+                rockAttack();
+
+            boss.attackTimer=75;
+
+        }else{
+
+            if(r<.3)
+                fireballAttack();
+            else if(r<.6)
+                shockwaveAttack();
+            else
+                rockAttack();
+
+            boss.attackTimer=50;
+        }
+    }
+
+    /* BOSS TOUCH DAMAGE */
+
+    if(
+        player.x+player.w>boss.x &&
+        player.x<boss.x+boss.w &&
+        player.y+player.h>boss.y+20 &&
+        player.y<boss.y+boss.h
+    ){
+
+        damagePlayer(10);
+
+        player.vx=-player.facing*7;
+        player.vy=-6;
+    }
+}
+
+
+/* =========================
+   BOSS ATTACKS
+========================= */
+
+function fireballAttack(){
+
+    const sx=boss.x+boss.w/2;
+    const sy=boss.y+40;
+
+    const tx=player.x+player.w/2;
+    const ty=player.y+player.h/2;
+
+    const dx=tx-sx;
+    const dy=ty-sy;
+
+    const len=Math.hypot(dx,dy);
+
+    const speed=
+        boss.phase===1 ? 5 :
+        boss.phase===2 ? 6 :
+        7;
+
+    projectiles.push({
+        x:sx,
+        y:sy,
+        vx:dx/len*speed,
+        vy:dy/len*speed,
+        r:10,
+        life:180
+    });
+
+    burst(sx,sy,"#ff7b54",10);
+}
+
+
+function shockwaveAttack(){
+
+    const side=
+        player.x<boss.x ? -1 : 1;
+
+    shockwaves.push({
+        x:boss.x+boss.w/2,
+        y:H*.88-12,
+        vx:side*(boss.phase===3?8:6),
+        w:30,
+        h:15,
+        life:140
+    });
+
+    /* sometimes send both ways */
+
+    if(boss.phase>=2){
+
+        shockwaves.push({
+            x:boss.x+boss.w/2,
+            y:H*.88-12,
+            vx:-side*(boss.phase===3?8:6),
+            w:30,
+            h:15,
+            life:140
+        });
+    }
+
+    shake=5;
+}
+
+
+function rockAttack(){
+
+    const count=boss.phase===3?4:2;
+
+    for(let i=0;i<count;i++){
+
+        fallingRocks.push({
+            x:Math.random()*W,
+            y:-40-Math.random()*150,
+            size:25+Math.random()*20,
+            vy:2+Math.random()*2,
+            warning:45
+        });
+    }
+}
+
+
+/* =========================
+   PROJECTILES
+========================= */
+
+function updateProjectiles(){
+
+    for(let i=projectiles.length-1;i>=0;i--){
+
+        const p=projectiles[i];
+
+        p.x+=p.vx;
+        p.y+=p.vy;
+        p.life--;
+
+        if(
+            Math.hypot(
+                p.x-(player.x+player.w/2),
+                p.y-(player.y+player.h/2)
+            ) < p.r+22
+        ){
+
+            damagePlayer(12);
+            burst(p.x,p.y,"#ff8844",12);
+
+            projectiles.splice(i,1);
+            continue;
+        }
+
+        if(p.life<=0){
+            projectiles.splice(i,1);
+        }
+    }
+}
+
+
+/* =========================
+   SHOCKWAVES
+========================= */
+
+function updateShockwaves(){
+
+    for(let i=shockwaves.length-1;i>=0;i--){
+
+        const s=shockwaves[i];
+
+        s.x+=s.vx;
+        s.life--;
+
+        if(
+            player.x+player.w>s.x &&
+            player.x<s.x+s.w &&
+            player.y+player.h>s.y-s.h &&
+            player.y+player.h<s.y+20
+        ){
+
+            damagePlayer(15);
+            player.vy=-8;
+        }
+
+        if(s.life<=0 || s.x<-100 || s.x>W+100)
+            shockwaves.splice(i,1);
+    }
+}
+
+
+/* =========================
+   ROCKS
+========================= */
+
+function updateRocks(){
+
+    for(let i=fallingRocks.length-1;i>=0;i--){
+
+        const r=fallingRocks[i];
+
+        if(r.warning>0){
+
+            r.warning--;
+
+        }else{
+
+            r.vy+=.25;
+            r.y+=r.vy;
+
+            if(
+                player.x+player.w>r.x-r.size/2 &&
+                player.x<r.x+r.size/2 &&
+                player.y+player.h>r.y-r.size/2 &&
+                player.y<r.y+r.size/2
+            ){
+
+                damagePlayer(18);
+                burst(r.x,r.y,"#ff5555",15);
+
+                fallingRocks.splice(i,1);
+                continue;
+            }
+        }
+
+        if(r.y>H+100)
+            fallingRocks.splice(i,1);
+    }
+}
+
+
+/* =========================
+   PARTICLES
+========================= */
+
+function updateParticles(){
+
+    for(let i=particles.length-1;i>=0;i--){
+
+        const p=particles[i];
+
+        p.x+=p.vx;
+        p.y+=p.vy;
+
+        p.vy+=.12;
+        p.life--;
+
+        if(p.life<=0)
+            particles.splice(i,1);
+    }
+}
+
+
+/* =========================
+   DRAW
+========================= */
+
+function draw(){
+
+    ctx.save();
+
+    if(shake>0){
+
+        ctx.translate(
+            (Math.random()-.5)*shake,
+            (Math.random()-.5)*shake
+        );
+
+        shake*=.88;
+
+        if(shake<.2) shake=0;
+    }
+
+    /* SKY */
+
+    const grad=ctx.createLinearGradient(0,0,0,H);
+    grad.addColorStop(0,"#10152e");
+    grad.addColorStop(1,"#28152b");
+
+    ctx.fillStyle=grad;
+    ctx.fillRect(0,0,W,H);
+
+    /* MOON */
+
+    ctx.fillStyle="#f7e8b5";
+    ctx.beginPath();
+    ctx.arc(W*.82,H*.18,45,0,Math.PI*2);
+    ctx.fill();
+
+    /* STARS */
+
+    for(let i=0;i<50;i++){
+
+        const x=(i*173)%W;
+        const y=(i*83)%(H*.5);
+
+        ctx.fillStyle="rgba(255,255,255,.5)";
+        ctx.fillRect(x,y,2,2);
+    }
+
+    /* BACKGROUND MOUNTAINS */
+
+    ctx.fillStyle="#111124";
+
+    ctx.beginPath();
+    ctx.moveTo(0,H*.78);
+
+    for(let x=0;x<=W;x+=100){
+
+        ctx.lineTo(
+            x,
+            H*.78-(Math.sin(x*.01)*40+60)
+        );
+    }
+
+    ctx.lineTo(W,H);
+    ctx.lineTo(0,H);
+    ctx.fill();
+
+    /* PLATFORM */
+
+    const ps=getPlatforms();
+
+    for(const p of ps){
+
+        ctx.fillStyle="#38314d";
+        ctx.fillRect(p.x,p.y,p.w,p.h);
+
+        ctx.fillStyle="#706080";
+        ctx.fillRect(p.x,p.y,p.w,5);
+    }
+
+    /* FLOOR */
+
+    ctx.fillStyle="#211b2c";
+    ctx.fillRect(0,H*.88,W,H*.12);
+
+    ctx.fillStyle="#57445c";
+    ctx.fillRect(0,H*.88,W,6);
+
+    /* ROCK WARNINGS */
+
+    for(const r of fallingRocks){
+
+        if(r.warning>0){
+
+            ctx.strokeStyle="rgba(255,70,70,.7)";
+            ctx.lineWidth=3;
+
+            ctx.beginPath();
+            ctx.moveTo(r.x-20,H*.88);
+            ctx.lineTo(r.x+20,H*.88);
+            ctx.stroke();
+
+        }else{
+
+            ctx.fillStyle="#777";
+            ctx.beginPath();
+
+            ctx.moveTo(
+                r.x,
+                r.y-r.size
+            );
+
+            ctx.lineTo(
+                r.x+r.size,
+                r.y
+            );
+
+            ctx.lineTo(
+                r.x,
+                r.y+r.size
+            );
+
+            ctx.lineTo(
+                r.x-r.size,
+                r.y
+            );
+
+            ctx.closePath();
+            ctx.fill();
+        }
+    }
+
+    /* SHOCKWAVES */
+
+    for(const s of shockwaves){
+
+        ctx.fillStyle="#ff7744";
+
+        ctx.beginPath();
+        ctx.moveTo(s.x,s.y);
+        ctx.lineTo(s.x+s.w,s.y);
+        ctx.lineTo(s.x+s.w-8,s.y-s.h);
+        ctx.lineTo(s.x+8,s.y-s.h);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    /* PROJECTILES */
+
+    for(const p of projectiles){
+
+        const g=ctx.createRadialGradient(
+            p.x,p.y,1,
+            p.x,p.y,p.r*2
+        );
+
+        g.addColorStop(0,"#fff");
+        g.addColorStop(.3,"#ffcc66");
+        g.addColorStop(1,"rgba(255,60,30,0)");
+
+        ctx.fillStyle=g;
+
+        ctx.beginPath();
+        ctx.arc(p.x,p.y,p.r*2,0,Math.PI*2);
+        ctx.fill();
+    }
+
+    /* BOSS */
+
+    drawBoss();
+
+    /* PLAYER */
+
+    drawPlayer();
+
+    /* PARTICLES */
+
+    for(const p of particles){
+
+        ctx.globalAlpha=Math.max(0,p.life/40);
+        ctx.fillStyle=p.color;
+
+        ctx.fillRect(
+            p.x,
+            p.y,
+            p.size,
+            p.size
+        );
+    }
+
+    ctx.globalAlpha=1;
+
+    ctx.restore();
+}
+
+
+/* =========================
+   DRAW PLAYER
+========================= */
+
+function drawPlayer(){
+
+    if(player.invincible>0 && Math.floor(player.invincible/4)%2===0)
+        return;
+
+    const x=player.x;
+    const y=player.y;
+
+    /* shadow */
+
+    ctx.fillStyle="rgba(0,0,0,.35)";
+    ctx.fillRect(x-5,y+player.h,x+player.w-(x-5),5);
+
+    /* body */
+
+    ctx.fillStyle=player.hurt>0?"#ff7777":"#58a6ff";
+    ctx.fillRect(x,y+15,player.w,31);
+
+    /* head */
+
+    ctx.fillStyle="#ffd7a8";
+    ctx.fillRect(x+5,y,20,20);
+
+    /* hair */
+
+    ctx.fillStyle="#26212f";
+    ctx.fillRect(x+3,y,24,7);
+
+    /* eyes */
+
+    ctx.fillStyle="#111";
+
+    const eyeX=
+        player.facing===1 ? x+18 : x+8;
+
+    ctx.fillRect(eyeX,y+9,3,3);
+
+    /* legs */
+
+    ctx.fillStyle="#30364d";
+    ctx.fillRect(x+3,y+42,9,7);
+    ctx.fillRect(x+18,y+42,9,7);
+
+    /* sword */
+
+    if(player.attackTimer>0){
+
+        ctx.save();
+
+        ctx.translate(
+            x+player.w/2,
+            y+23
+        );
+
+        ctx.scale(player.facing,1);
+
+        ctx.rotate(-.45);
+
+        ctx.fillStyle="#f5f5f5";
+        ctx.fillRect(18,-4,48,7);
+
+        ctx.fillStyle="#ffd166";
+        ctx.fillRect(12,-7,8,13);
+
+        ctx.restore();
+
+    }else{
+
+        ctx.save();
+
+        ctx.translate(
+            x+player.w/2,
+            y+25
+        );
+
+        ctx.scale(player.facing,1);
+        ctx.rotate(.6);
+
+        ctx.fillStyle="#eee";
+        ctx.fillRect(12,-3,35,5);
+
+        ctx.restore();
+    }
+}
+
+
+/* =========================
+   DRAW BOSS
+========================= */
+
+function drawBoss(){
+
+    const x=boss.x;
+    const y=boss.y;
+
+    const pulse=
+        Math.sin(Date.now()*.006)*3;
+
+    /* aura */
+
+    ctx.fillStyle=
+        boss.phase===1
+        ? "rgba(180,50,255,.12)"
+        : boss.phase===2
+        ? "rgba(255,80,40,.18)"
+        : "rgba(255,30,30,.25)";
+
+    ctx.beginPath();
+    ctx.arc(
+        x+boss.w/2,
+        y+boss.h/2,
+        75+pulse,
+        0,
+        Math.PI*2
+    );
+    ctx.fill();
+
+    /* cape */
+
+    ctx.fillStyle="#24142f";
+
+    ctx.beginPath();
+    ctx.moveTo(x+10,y+35);
+    ctx.lineTo(x-18,y+boss.h);
+    ctx.lineTo(x+boss.w+18,y+boss.h);
+    ctx.lineTo(x+boss.w-10,y+35);
+    ctx.closePath();
+    ctx.fill();
+
+    /* body */
+
+    ctx.fillStyle=
+        boss.hurt>0
+        ? "#ff7777"
+        : boss.phase===3
+        ? "#8b1e2d"
+        : "#57265f";
+
+    ctx.fillRect(
+        x+10,
+        y+30,
+        boss.w-20,
+        boss.h-30
+    );
+
+    /* head */
+
+    ctx.fillStyle="#3b263d";
+
+    ctx.beginPath();
+    ctx.arc(
+        x+boss.w/2,
+        y+28,
+        28,
+        0,
+        Math.PI*2
+    );
+    ctx.fill();
+
+    /* horns */
+
+    ctx.fillStyle="#d6a35c";
+
+    ctx.beginPath();
+    ctx.moveTo(x+22,y+12);
+    ctx.lineTo(x+5,y-15);
+    ctx.lineTo(x+30,y+5);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(x+boss.w-22,y+12);
+    ctx.lineTo(x+boss.w+5,y-15);
+    ctx.lineTo(x+boss.w-30,y+5);
+    ctx.fill();
+
+    /* eyes */
+
+    ctx.fillStyle=
+        boss.phase===3
+        ? "#ff2222"
+        : "#ffcc55";
+
+    ctx.fillRect(
+        x+25,
+        y+24,
+        9,
+        5
+    );
+
+    ctx.fillRect(
+        x+boss.w-34,
+        y+24,
+        9,
+        5
+    );
+
+    /* arms */
+
+    ctx.fillStyle="#432447";
+
+    ctx.fillRect(
+        x-7,
+        y+45,
+        18,
+        42
+    );
+
+    ctx.fillRect(
+        x+boss.w-11,
+        y+45,
+        18,
+        42
+    );
+}
+
+
+/* =========================
+   GAME LOOP
+========================= */
+
+function loop(){
+
+    updatePlayer();
+    updateBoss();
+
+    updateProjectiles();
+    updateShockwaves();
+    updateRocks();
+    updateParticles();
+
+    draw();
+
+    updateUI();
+
+    requestAnimationFrame(loop);
+}
+
+function updateUI(){
+
+    document.getElementById("playerHealth").style.width=
+        player.hp+"%";
+
+    document.getElementById("bossHealth").style.width=
+        (boss.hp/boss.maxHp*100)+"%";
+}
+
+
+/* =========================
+   END GAME
+========================= */
+
+function endGame(win){
+
+    gameOver=true;
+
+    const msg=document.getElementById("message");
+    const title=document.getElementById("messageTitle");
+    const text=document.getElementById("messageText");
+
+    msg.classList.remove("hidden");
+
+    if(win){
+
+        title.textContent="YOU WIN";
+        text.textContent=
+            "The Warden has been defeated. You survived all 3 phases.";
+    }else{
+
+        title.textContent="GAME OVER";
+        text.textContent=
+            "The Warden got you. Learn the attack patterns and try again.";
+    }
+}
+
+
+function restart(){
+
+    player.x=200;
+    player.y=300;
+    player.vx=0;
+    player.vy=0;
+    player.hp=100;
+    player.attackTimer=0;
+    player.attackCooldown=0;
+    player.dashCooldown=0;
+    player.invincible=0;
+
+    boss.x=W*.65;
+    boss.y=H*.4;
+    boss.vx=0;
+    boss.vy=0;
+    boss.hp=500;
+    boss.phase=1;
+    boss.attackTimer=80;
+
+    projectiles=[];
+    shockwaves=[];
+    fallingRocks=[];
+    particles=[];
+
+    gameOver=false;
+
+    document.getElementById("message")
+        .classList.add("hidden");
+}
+
+
+/* INITIAL POSITION */
+
+boss.x=W*.65;
+boss.y=H*.4;
+
+player.x=W*.18;
+player.y=H*.5;
+
+loop();
+</script>
+
+</body>
+</html>
